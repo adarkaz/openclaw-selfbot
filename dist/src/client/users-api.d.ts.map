@@ -1,0 +1,1 @@
+{"version":3,"file":"users-api.d.ts","sourceRoot":"","sources":["../../../src/client/users-api.ts"],"names":[],"mappings":"AACA,OAAO,KAAK,EAAE,cAAc,EAAE,MAAM,UAAU,CAAC;AAC/C,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,aAAa,CAAC;AAE9C,qBAAa,QAAQ;IAEjB,OAAO,CAAC,MAAM;IACd,OAAO,CAAC,eAAe;gBADf,MAAM,EAAE,MAAM,cAAc,EAC5B,eAAe,EAAE,MAAM,IAAI;IAG/B,KAAK,IAAI,OAAO,CAAC,UAAU,CAAC;CAmBnC"}

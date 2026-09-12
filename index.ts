@@ -239,25 +239,25 @@ export default defineChannelPluginEntry({
       (api.config as any)?.channels?.["telegram-selfbot"],
     );
 
-    api.registerGatewayMethod("telegram-selfbot.getSessionString", () => {
-      return { sessionString: resolveClient().getSessionString() };
+    api.registerGatewayMethod("telegram-selfbot.getSessionString", (opts) => {
+      opts.respond(true, { sessionString: resolveClient().getSessionString() });
     });
 
-    api.registerGatewayMethod("telegram-selfbot.reconnect", async () => {
+    api.registerGatewayMethod("telegram-selfbot.reconnect", async (opts) => {
       const client = resolveClient();
       await client.disconnect();
       await client.connect();
-      return { ok: true };
+      opts.respond(true, { ok: true });
     });
 
-    api.registerGatewayMethod("telegram-selfbot.pauseInbound", () => {
+    api.registerGatewayMethod("telegram-selfbot.pauseInbound", (opts) => {
       _dispatcher?.pause();
-      return { paused: _dispatcher?.paused ?? true };
+      opts.respond(true, { paused: _dispatcher?.paused ?? true });
     });
 
-    api.registerGatewayMethod("telegram-selfbot.resumeInbound", () => {
+    api.registerGatewayMethod("telegram-selfbot.resumeInbound", (opts) => {
       _dispatcher?.resume();
-      return { paused: _dispatcher?.paused ?? false };
+      opts.respond(true, { paused: _dispatcher?.paused ?? false });
     });
   },
 });

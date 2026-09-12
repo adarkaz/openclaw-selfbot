@@ -12,6 +12,9 @@ import {
   createTelegramSelfBotMonitor,
   type TelegramSelfBotMonitor,
 } from "./monitor.js";
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 
 // ---- Runtime store ----
@@ -113,24 +116,33 @@ export const telegramSelfBotPlugin = createChatChannelPlugin({
       },
     },
     setup: {
-      resolveAccount,
-      inspectAccount(cfg, accountId) {
-        const section = getChannelSection(cfg);
-        const configured = Boolean(section.apiId && section.apiHash);
-        return {
-          enabled: configured,
-          configured,
-          tokenStatus: configured ? "available" : "missing",
+      resolveAccountId: () => "default",
+      applyAccountConfig: ({ cfg, input }) => {
+        // Raw-mode channel: merge whatever the setup surface collected
+        // into the raw channels.telegram-selfbot section.
+        const section: Record<string, unknown> = {
+          ...getChannelSection(cfg),
+          enabled: true,
         };
+        for (const [k, v] of Object.entries(input ?? {})) {
+          if (v !== undefined && v !== null && v !== "") section[k] = v;
+        }
+        return {
+          ...cfg,
+          channels: {
+            ...(cfg.channels as Record<string, unknown> | undefined),
+            [CHANNEL_KEY]: section,
+          },
+        } as OpenClawConfig;
       },
     },
-  }),
+  }) as any,
 
   security: {
     dm: {
       channelKey: CHANNEL_KEY,
-      resolvePolicy: (account) => account.dmPolicy,
-      resolveAllowFrom: (account) => account.allowFrom,
+      resolvePolicy: (account: any) => account.dmPolicy,
+      resolveAllowFrom: (account: any) => account.allowFrom,
       defaultPolicy: "allowlist",
     },
   },
@@ -139,13 +151,13 @@ export const telegramSelfBotPlugin = createChatChannelPlugin({
     text: {
       idLabel: "Telegram username or phone number",
       message: "Send this code to verify your identity:",
-      notify: async ({ target, code, cfg }) => {
+      notify: async ({ id, message, cfg }) => {
         const rt = getRuntime();
         if (!rt) throw new Error("Runtime not initialized");
         const account = resolveAccount(cfg);
         const client = rt.clients.get(account.accountId);
         if (!client) throw new Error("Client not connected");
-        await client.messages.sendMessage(target, `Pairing code: ${code}`);
+        await client.messages.sendMessage(id, message);
       },
     },
   },
@@ -154,6 +166,7 @@ export const telegramSelfBotPlugin = createChatChannelPlugin({
 
   outbound: {
     attachedResults: {
+      channel: CHANNEL_KEY,
       sendText: async (params) => {
         const rt = getRuntime();
         if (!rt) throw new Error("Runtime not initialized");
@@ -162,7 +175,7 @@ export const telegramSelfBotPlugin = createChatChannelPlugin({
         const transformed = telegramSelfBotAdapter.transformOutbound({
           chatId: params.to,
           text: params.text,
-          replyTo: (params as any).replyTo,
+          replyTo: params.replyToId ?? undefined,
         });
         const result = await client.messages.sendMessage(
           transformed.chatId,
@@ -171,29 +184,37 @@ export const telegramSelfBotPlugin = createChatChannelPlugin({
         );
         return { messageId: String(result.messageId) };
       },
-    },
-    base: {
       sendMedia: async (params) => {
         const rt = getRuntime();
         if (!rt) throw new Error("Runtime not initialized");
         const client = rt.clients.get(params.accountId ?? "default");
         if (!client) throw new Error(`Client not found for ${params.accountId}`);
-        await client.files.sendFile(params.to, params.filePath, (params as any).caption);
+        if (!params.mediaUrl) {
+          throw new Error("sendMedia: mediaUrl is required");
+        }
+        let filePath: string;
+        if (/^https?:\/\//i.test(params.mediaUrl)) {
+          const res = await fetch(params.mediaUrl);
+          if (!res.ok) {
+            throw new Error(`sendMedia: download failed (HTTP ${res.status})`);
+          }
+          const buf = Buffer.from(await res.arrayBuffer());
+          filePath = join(tmpdir(), `tg-selfbot-${Date.now()}`);
+          await writeFile(filePath, buf);
+        } else {
+          filePath = params.mediaUrl;
+        }
+        const result = await client.files.sendFile(
+          params.to,
+          filePath,
+          params.text,
+          Boolean(params.forceDocument),
+        );
+        return { messageId: String(result.messageId) };
       },
-      sendTypingIndicator: async (params) => {
-        const rt = getRuntime();
-        if (!rt) throw new Error("Runtime not initialized");
-        const client = rt.clients.get(params.accountId ?? "default");
-        if (!client) return;
-        await client.messages.sendTypingIndicator(params.to);
-      },
-      sendReadReceipt: async (params) => {
-        const rt = getRuntime();
-        if (!rt) throw new Error("Runtime not initialized");
-        const client = rt.clients.get(params.accountId ?? "default");
-        if (!client) return;
-        await client.markAsRead(params.to, Number(params.messageId));
-      },
+    },
+    base: {
+      deliveryMode: "direct",
     },
   },
 });

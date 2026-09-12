@@ -1,6 +1,6 @@
 # deps / build output
 node_modules/
-dist/
+
 
 # local secrets — never commit
 .env
