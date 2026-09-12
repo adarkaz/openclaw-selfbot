@@ -2,7 +2,7 @@ import { TelegramClient, utils } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { Api } from "telegram";
 import { NewMessage } from "telegram/events/index.js";
-import type { InboundTelegramMessage } from "./types.js";
+import type { InboundTelegramMessage, TelegramProxyConfig } from "./types.js";
 import { MessagesAPI } from "./client/messages-api.js";
 import { UsersAPI } from "./client/users-api.js";
 import { FilesAPI } from "./client/files-api.js";
@@ -90,6 +90,7 @@ export class TelegramSelfBotClient {
       phoneNumber: string;
       sessionString?: string;
       password?: string;
+      proxy?: TelegramProxyConfig;
     },
     accountId: string,
   ) {
@@ -348,13 +349,17 @@ export class TelegramSelfBotClient {
     onPasswordRequest: () => Promise<string>;
   }): Promise<void> {
     try {
+      const proxy = this.config.proxy;
       this._client = new TelegramClient(
         this.session,
         this.config.apiId,
         this.config.apiHash,
         {
           connectionRetries: 3,
-          useWSS: true,
+          // WSS is not routable through a SOCKS/MTProto proxy — use plain
+          // TCP transports when a proxy is configured.
+          useWSS: !proxy,
+          ...(proxy ? { proxy: proxy as any } : {}),
         },
       );
 

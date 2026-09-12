@@ -8,6 +8,9 @@
       "TELEGRAM_SELFBOT_PHONE_NUMBER"
     ]
   },
+  "contracts": {
+    "tools": ["tg_invoke", "web_search"]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

@@ -87,6 +87,7 @@ async function startClient(cfg: any): Promise<void> {
           phoneNumber: String(section.phoneNumber ?? ""),
           sessionString: section.sessionString,
           password: section.password,
+          proxy: section.proxy,
         },
         "default",
       );

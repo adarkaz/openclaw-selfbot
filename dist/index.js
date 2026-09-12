@@ -77,6 +77,7 @@ async function startClient(cfg) {
                 phoneNumber: String(section.phoneNumber ?? ""),
                 sessionString: section.sessionString,
                 password: section.password,
+                proxy: section.proxy,
             }, "default");
             clients.set("default", client);
             const interactiveAuth = {

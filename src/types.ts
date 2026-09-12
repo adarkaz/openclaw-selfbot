@@ -21,6 +21,17 @@ export interface TelegramSelfBotConfig {
   dmPolicy?: string;
 }
 
+/** gramjs TelegramClient proxy options (MTProxy with secret, or SOCKS4/5). */
+export interface TelegramProxyConfig {
+  ip: string;
+  port: number;
+  socksType?: 4 | 5;
+  username?: string;
+  password?: string;
+  secret?: string;
+  timeout?: number;
+}
+
 export interface InboundTelegramMessage {
   id: number;
   chatId: string;

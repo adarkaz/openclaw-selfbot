@@ -252,9 +252,13 @@ export class TelegramSelfBotClient {
     // ---- Internal helpers ----
     async _doConnect(interactiveAuth) {
         try {
+            const proxy = this.config.proxy;
             this._client = new TelegramClient(this.session, this.config.apiId, this.config.apiHash, {
                 connectionRetries: 3,
-                useWSS: true,
+                // WSS is not routable through a SOCKS/MTProto proxy — use plain
+                // TCP transports when a proxy is configured.
+                useWSS: !proxy,
+                ...(proxy ? { proxy: proxy } : {}),
             });
             await this._client.connect();
             if (!(await this._client.isUserAuthorized())) {
