@@ -1,0 +1,12 @@
+# deps / build output
+node_modules/
+dist/
+
+# local secrets — never commit
+.env
+*.session
+shell.nix
+
+# machine-local config
+.claude/settings.local.json
+CLAUDE.md

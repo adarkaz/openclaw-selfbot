@@ -1,0 +1,16 @@
+{
+  "id": "telegram-selfbot",
+  "channels": ["telegram-selfbot"],
+  "channelEnvVars": {
+    "telegram-selfbot": [
+      "TELEGRAM_SELFBOT_API_ID",
+      "TELEGRAM_SELFBOT_API_HASH",
+      "TELEGRAM_SELFBOT_PHONE_NUMBER"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

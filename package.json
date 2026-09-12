@@ -1,0 +1,34 @@
+{
+  "name": "@openclaw/telegram-selfbot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenClaw Telegram self-bot channel plugin via MTProto",
+  "type": "module",
+  "dependencies": {
+    "telegram": "^2.26.0"
+  },
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*",
+    "@sinclair/typebox": "^0.34.0",
+    "typescript": "^5.7.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "setupEntry": "./setup-entry.ts",
+    "channel": {
+      "id": "telegram-selfbot",
+      "label": "Telegram (Self-Bot)",
+      "selectionLabel": "Telegram (Self-Bot / MTProto)",
+      "detailLabel": "Telegram User Account",
+      "docsPath": "/channels/telegram-selfbot",
+      "docsLabel": "telegram-selfbot",
+      "blurb": "Connect as a real Telegram user account via MTProto. Supports both DMs and groups.",
+      "systemImage": "paperplane",
+      "selectionDocsPrefix": "",
+      "selectionDocsOmitLabel": true,
+      "markdownCapable": true
+    }
+  }
+}
