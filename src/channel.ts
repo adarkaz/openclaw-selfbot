@@ -3,6 +3,7 @@ import {
   createChannelPluginBase,
 } from "openclaw/plugin-sdk/channel-core";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
+import { patchScopedAccountConfig } from "openclaw/plugin-sdk/setup";
 import {
   createPluginRuntimeStore,
 } from "openclaw/plugin-sdk/runtime-store";
@@ -117,9 +118,10 @@ export const telegramSelfBotPlugin = createChatChannelPlugin({
     },
     setup: {
       resolveAccountId: () => "default",
+      resolveBindingAccountId: () => "default",
       applyAccountConfig: ({ cfg, input }) => {
-        // Raw-mode channel: merge whatever the setup surface collected
-        // into the raw channels.telegram-selfbot section.
+        // Merge whatever the setup surface collected (wizard steps or CLI
+        // flags) into the raw channels.telegram-selfbot section.
         const section: Record<string, unknown> = {
           ...getChannelSection(cfg),
           enabled: true,
@@ -134,6 +136,64 @@ export const telegramSelfBotPlugin = createChatChannelPlugin({
             [CHANNEL_KEY]: section,
           },
         } as OpenClawConfig;
+      },
+    },
+    setupWizard: {
+      channel: CHANNEL_KEY,
+      getStatus: async ({ cfg }) => {
+        const section = getChannelSection(cfg);
+        const configured = Boolean(section.apiId && section.apiHash);
+        return {
+          channel: CHANNEL_KEY as any,
+          configured,
+          statusLines: configured
+            ? [
+                `Telegram apiId + apiHash configured${
+                  section.phoneNumber ? " (phone number set)" : ""
+                }`,
+              ]
+            : ["Needs Telegram apiId + apiHash from my.telegram.org"],
+        };
+      },
+      configure: async ({ cfg, prompter }) => {
+        await prompter.note(
+          "Connect a real Telegram user account (self-bot) via MTProto.\n" +
+            "Get apiId and apiHash at https://my.telegram.org/apps.",
+          "Telegram Self-Bot",
+        );
+        const apiId = await prompter.text({
+          message: "Telegram apiId (digits from my.telegram.org)",
+          placeholder: "123456",
+          validate: (v) =>
+            /^\d+$/.test(v.trim()) ? undefined : "apiId must be a number",
+        });
+        const apiHash = await prompter.text({
+          message: "Telegram apiHash",
+          placeholder: "abc123...",
+          sensitive: true,
+          validate: (v) =>
+            v.trim() ? undefined : "apiHash is required",
+        });
+        const phoneNumber = await prompter.text({
+          message:
+            "Phone number in international format (the account you log in as)",
+          placeholder: "+79991234567",
+        });
+
+        const next = patchScopedAccountConfig({
+          cfg,
+          channelKey: CHANNEL_KEY,
+          accountId: "default",
+          patch: {
+            apiId: Number(apiId.trim()),
+            apiHash: apiHash.trim(),
+            phoneNumber: phoneNumber.trim(),
+            enabled: true,
+            autoResume: true,
+          },
+          ensureChannelEnabled: true,
+        });
+        return { cfg: next, accountId: "default" };
       },
     },
   }) as any,

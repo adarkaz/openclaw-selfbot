@@ -8,6 +8,64 @@
       "TELEGRAM_SELFBOT_PHONE_NUMBER"
     ]
   },
+  "channelConfigs": {
+    "telegram-selfbot": {
+      "label": "Telegram Self-Bot",
+      "description": "Connect a real Telegram user account via MTProto. DMs are answered per-dialog; a self-chat loop runs every N minutes.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "apiId": {
+            "type": ["string", "number"],
+            "description": "Telegram API id (my.telegram.org)"
+          },
+          "apiHash": {
+            "type": "string",
+            "description": "Telegram API hash"
+          },
+          "phoneNumber": {
+            "type": "string",
+            "description": "Account phone number in international format"
+          },
+          "sessionString": {
+            "type": "string",
+            "description": "Persisted MTProto session (auto-saved after first login)"
+          },
+          "password": {
+            "type": "string",
+            "description": "Optional 2FA password"
+          },
+          "dmPolicy": {
+            "type": "string",
+            "description": "DM policy (pairing / allowlist / open)"
+          },
+          "allowFrom": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Allowed DM senders"
+          },
+          "autoResume": {
+            "type": "boolean",
+            "description": "Auto-resume inbound handling after connect (default true)"
+          },
+          "selfLoop": {
+            "type": "object",
+            "description": "Self-chat loop: { enabled, intervalMin, prompt, target }"
+          },
+          "proxy": {
+            "type": "object",
+            "description": "SOCKS/MTProto proxy: { ip, port, socksType, secret? }"
+          }
+        }
+      },
+      "uiHints": {
+        "apiHash": { "sensitive": true },
+        "sessionString": { "sensitive": true },
+        "password": { "sensitive": true }
+      }
+    }
+  },
   "contracts": {
     "tools": ["tg_invoke"]
   },

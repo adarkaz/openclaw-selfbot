@@ -1,25 +1,43 @@
 import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";
 export function createDispatcher(deps) {
-    const { runtime, cfg: _cfg, getClient, getBotUsername, agentId } = deps;
+    const { runtime, cfg: _cfg, getClient, getBotUsername } = deps;
     let paused = true;
     function dispatchInboundMessage(payload) {
         if (paused)
             return;
         if (payload.chatType === "group") {
-            dispatchGroupMessage(payload);
+            void dispatchGroupMessage(payload);
         }
         else {
             dispatchDirectMessage(payload);
         }
     }
+    /**
+     * Resolve the agent that owns this chat via OpenClaw's route bindings
+     * (config `bindings: [{type:"route", agentId, match:{channel, accountId, peer}}]`,
+     * written by the dashboard "add channel to agent" flow). Falls back to the
+     * configured default agent when no binding matches.
+     */
+    function resolveRouteAgentId(chatType, chatId) {
+        return runtime.channel.routing.resolveAgentRoute({
+            cfg: _cfg,
+            channel: "telegram-selfbot",
+            accountId: "default",
+            peer: {
+                kind: chatType === "group" ? "group" : "direct",
+                id: chatId,
+            },
+        }).agentId;
+    }
     function dispatchDirectMessage(payload) {
+        const agentId = resolveRouteAgentId("direct", payload.chatId);
         const sessionKey = runtime.channel.routing.buildAgentSessionKey({
             agentId,
             channel: "telegram-selfbot",
             accountId: "default",
             peer: { kind: "direct", id: payload.chatId },
         });
-        dispatchToAgent(payload, sessionKey);
+        dispatchToAgent(payload, sessionKey, agentId);
     }
     /**
      * Self-loop entry: synthetic "self" message, not gated by pause.
@@ -27,13 +45,15 @@ export function createDispatcher(deps) {
      * self-chat dialog separate from every real DM.
      */
     function dispatchSelfMessage(payload) {
+        const chatId = payload.chatId ?? "self";
+        const agentId = resolveRouteAgentId("direct", chatId);
         const sessionKey = runtime.channel.routing.buildAgentSessionKey({
             agentId,
             channel: "telegram-selfbot",
             accountId: "default",
-            peer: { kind: "direct", id: payload.chatId ?? "self" },
+            peer: { kind: "direct", id: chatId },
         });
-        dispatchToAgent(payload, sessionKey);
+        dispatchToAgent(payload, sessionKey, agentId);
     }
     async function dispatchGroupMessage(payload) {
         const username = await getBotUsername();
@@ -46,15 +66,16 @@ export function createDispatcher(deps) {
             console.log("[telegram-selfbot] group message skipped (not mentioned): chat=%s sender=%s", payload.chatId, payload.senderId);
             return;
         }
+        const agentId = resolveRouteAgentId("group", payload.chatId);
         const sessionKey = runtime.channel.routing.buildAgentSessionKey({
             agentId,
             channel: "telegram-selfbot",
             accountId: "default",
             peer: { kind: "group", id: payload.chatId },
         });
-        dispatchToAgent(payload, sessionKey);
+        dispatchToAgent(payload, sessionKey, agentId);
     }
-    function dispatchToAgent(payload, sessionKey) {
+    function dispatchToAgent(payload, sessionKey, agentId) {
         const storePath = runtime.channel.session.resolveStorePath(undefined, {
             agentId,
         });

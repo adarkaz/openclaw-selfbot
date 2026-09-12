@@ -135,13 +135,14 @@ async function startClient(cfg: any): Promise<void> {
         }
       }
 
-      // Wire up dispatcher after client + runtime are ready
+      // Wire up dispatcher after client + runtime are ready.
+      // The owning agent is resolved per message via OpenClaw's route
+      // bindings (resolveAgentRoute), not hardcoded here.
       const dispatcher = createDispatcher({
         runtime,
         cfg: _cfg,
         getClient: resolveClient,
         getBotUsername,
-        agentId: String(section.agentId ?? "main"),
       });
       _dispatcher = dispatcher;
 

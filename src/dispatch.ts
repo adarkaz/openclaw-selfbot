@@ -7,24 +7,41 @@ export interface DispatchDeps {
   cfg: any;
   getClient: () => TelegramSelfBotClient;
   getBotUsername: () => Promise<string | null>;
-  /** Agent that owns this channel (config channels.<id>.agentId, default "main"). */
-  agentId: string;
 }
 
 export function createDispatcher(deps: DispatchDeps) {
-  const { runtime, cfg: _cfg, getClient, getBotUsername, agentId } = deps;
+  const { runtime, cfg: _cfg, getClient, getBotUsername } = deps;
   let paused = true;
 
   function dispatchInboundMessage(payload: any) {
     if (paused) return;
     if (payload.chatType === "group") {
-      dispatchGroupMessage(payload);
+      void dispatchGroupMessage(payload);
     } else {
       dispatchDirectMessage(payload);
     }
   }
 
+  /**
+   * Resolve the agent that owns this chat via OpenClaw's route bindings
+   * (config `bindings: [{type:"route", agentId, match:{channel, accountId, peer}}]`,
+   * written by the dashboard "add channel to agent" flow). Falls back to the
+   * configured default agent when no binding matches.
+   */
+  function resolveRouteAgentId(chatType: string, chatId: string): string {
+    return runtime.channel.routing.resolveAgentRoute({
+      cfg: _cfg,
+      channel: "telegram-selfbot",
+      accountId: "default",
+      peer: {
+        kind: chatType === "group" ? "group" : "direct",
+        id: chatId,
+      },
+    }).agentId;
+  }
+
   function dispatchDirectMessage(payload: any) {
+    const agentId = resolveRouteAgentId("direct", payload.chatId);
     const sessionKey = runtime.channel.routing.buildAgentSessionKey({
       agentId,
       channel: "telegram-selfbot",
@@ -32,7 +49,7 @@ export function createDispatcher(deps: DispatchDeps) {
       peer: { kind: "direct", id: payload.chatId },
     });
 
-    dispatchToAgent(payload, sessionKey);
+    dispatchToAgent(payload, sessionKey, agentId);
   }
 
   /**
@@ -41,14 +58,16 @@ export function createDispatcher(deps: DispatchDeps) {
    * self-chat dialog separate from every real DM.
    */
   function dispatchSelfMessage(payload: any) {
+    const chatId = payload.chatId ?? "self";
+    const agentId = resolveRouteAgentId("direct", chatId);
     const sessionKey = runtime.channel.routing.buildAgentSessionKey({
       agentId,
       channel: "telegram-selfbot",
       accountId: "default",
-      peer: { kind: "direct", id: payload.chatId ?? "self" },
+      peer: { kind: "direct", id: chatId },
     });
 
-    dispatchToAgent(payload, sessionKey);
+    dispatchToAgent(payload, sessionKey, agentId);
   }
 
   async function dispatchGroupMessage(payload: InboundTelegramMessage) {
@@ -69,6 +88,7 @@ export function createDispatcher(deps: DispatchDeps) {
       return;
     }
 
+    const agentId = resolveRouteAgentId("group", payload.chatId);
     const sessionKey = runtime.channel.routing.buildAgentSessionKey({
       agentId,
       channel: "telegram-selfbot",
@@ -76,12 +96,13 @@ export function createDispatcher(deps: DispatchDeps) {
       peer: { kind: "group", id: payload.chatId },
     });
 
-    dispatchToAgent(payload, sessionKey);
+    dispatchToAgent(payload, sessionKey, agentId);
   }
 
   function dispatchToAgent(
     payload: any,
     sessionKey: string,
+    agentId: string,
   ) {
     const storePath = runtime.channel.session.resolveStorePath(undefined, {
       agentId,
