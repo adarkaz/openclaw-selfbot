@@ -1,7 +1,7 @@
 import { TelegramClient, utils } from "telegram";
-import { StringSession } from "telegram/sessions";
+import { StringSession } from "telegram/sessions/index.js";
 import { Api } from "telegram";
-import { NewMessage } from "telegram/events";
+import { NewMessage } from "telegram/events/index.js";
 import { MessagesAPI } from "./client/messages-api.js";
 import { UsersAPI } from "./client/users-api.js";
 import { FilesAPI } from "./client/files-api.js";

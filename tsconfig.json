@@ -10,17 +10,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "declaration": true,
-    "declarationMap": true,
     "sourceMap": true,
     "resolveJsonModule": true,
-    "allowSyntheticDefaultImports": true,
-    "baseUrl": ".",
-    "paths": {
-      "telegram/sessions": ["./node_modules/telegram/sessions/index.d.ts"],
-      "telegram/events": ["./node_modules/telegram/events/index.d.ts"],
-      "telegram/client/uploads": ["./node_modules/telegram/client/uploads.d.ts"]
-    }
+    "allowSyntheticDefaultImports": true
   },
   "include": ["./**/*.ts"],
   "exclude": ["node_modules", "dist"]
