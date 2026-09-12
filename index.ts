@@ -141,6 +141,7 @@ async function startClient(cfg: any): Promise<void> {
         cfg: _cfg,
         getClient: resolveClient,
         getBotUsername,
+        agentId: String(section.agentId ?? "main"),
       });
       _dispatcher = dispatcher;
 

@@ -7,10 +7,12 @@ export interface DispatchDeps {
   cfg: any;
   getClient: () => TelegramSelfBotClient;
   getBotUsername: () => Promise<string | null>;
+  /** Agent that owns this channel (config channels.<id>.agentId, default "main"). */
+  agentId: string;
 }
 
 export function createDispatcher(deps: DispatchDeps) {
-  const { runtime, cfg: _cfg, getClient, getBotUsername } = deps;
+  const { runtime, cfg: _cfg, getClient, getBotUsername, agentId } = deps;
   let paused = true;
 
   function dispatchInboundMessage(payload: any) {
@@ -24,7 +26,7 @@ export function createDispatcher(deps: DispatchDeps) {
 
   function dispatchDirectMessage(payload: any) {
     const sessionKey = runtime.channel.routing.buildAgentSessionKey({
-      agentId: "main",
+      agentId,
       channel: "telegram-selfbot",
       accountId: "default",
       peer: { kind: "direct", id: payload.chatId },
@@ -40,7 +42,7 @@ export function createDispatcher(deps: DispatchDeps) {
    */
   function dispatchSelfMessage(payload: any) {
     const sessionKey = runtime.channel.routing.buildAgentSessionKey({
-      agentId: "main",
+      agentId,
       channel: "telegram-selfbot",
       accountId: "default",
       peer: { kind: "direct", id: payload.chatId ?? "self" },
@@ -68,7 +70,7 @@ export function createDispatcher(deps: DispatchDeps) {
     }
 
     const sessionKey = runtime.channel.routing.buildAgentSessionKey({
-      agentId: "main",
+      agentId,
       channel: "telegram-selfbot",
       accountId: "default",
       peer: { kind: "group", id: payload.chatId },
@@ -82,7 +84,7 @@ export function createDispatcher(deps: DispatchDeps) {
     sessionKey: string,
   ) {
     const storePath = runtime.channel.session.resolveStorePath(undefined, {
-      agentId: "main",
+      agentId,
     });
 
     const body = payload.rawText || payload.text || "";
@@ -110,14 +112,14 @@ export function createDispatcher(deps: DispatchDeps) {
     const { onModelSelected, typingCallbacks, ...replyPipeline } =
       createChannelReplyPipeline({
         cfg: _cfg,
-        agentId: "main",
+        agentId,
         channel: "telegram-selfbot",
         accountId: "default",
       });
 
     const humanDelay = runtime.channel.reply.resolveHumanDelayConfig(
       _cfg,
-      "main",
+      agentId,
     );
 
     const { dispatcher, replyOptions } =

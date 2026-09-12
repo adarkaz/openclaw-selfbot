@@ -123,6 +123,7 @@ async function startClient(cfg) {
                 cfg: _cfg,
                 getClient: resolveClient,
                 getBotUsername,
+                agentId: String(section.agentId ?? "main"),
             });
             _dispatcher = dispatcher;
             const existingMonitor = monitors.get("default");

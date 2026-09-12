@@ -1,6 +1,6 @@
 import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";
 export function createDispatcher(deps) {
-    const { runtime, cfg: _cfg, getClient, getBotUsername } = deps;
+    const { runtime, cfg: _cfg, getClient, getBotUsername, agentId } = deps;
     let paused = true;
     function dispatchInboundMessage(payload) {
         if (paused)
@@ -14,7 +14,7 @@ export function createDispatcher(deps) {
     }
     function dispatchDirectMessage(payload) {
         const sessionKey = runtime.channel.routing.buildAgentSessionKey({
-            agentId: "main",
+            agentId,
             channel: "telegram-selfbot",
             accountId: "default",
             peer: { kind: "direct", id: payload.chatId },
@@ -28,7 +28,7 @@ export function createDispatcher(deps) {
      */
     function dispatchSelfMessage(payload) {
         const sessionKey = runtime.channel.routing.buildAgentSessionKey({
-            agentId: "main",
+            agentId,
             channel: "telegram-selfbot",
             accountId: "default",
             peer: { kind: "direct", id: payload.chatId ?? "self" },
@@ -47,7 +47,7 @@ export function createDispatcher(deps) {
             return;
         }
         const sessionKey = runtime.channel.routing.buildAgentSessionKey({
-            agentId: "main",
+            agentId,
             channel: "telegram-selfbot",
             accountId: "default",
             peer: { kind: "group", id: payload.chatId },
@@ -56,7 +56,7 @@ export function createDispatcher(deps) {
     }
     function dispatchToAgent(payload, sessionKey) {
         const storePath = runtime.channel.session.resolveStorePath(undefined, {
-            agentId: "main",
+            agentId,
         });
         const body = payload.rawText || payload.text || "";
         const ctx = runtime.channel.reply.finalizeInboundContext({
@@ -80,11 +80,11 @@ export function createDispatcher(deps) {
         });
         const { onModelSelected, typingCallbacks, ...replyPipeline } = createChannelReplyPipeline({
             cfg: _cfg,
-            agentId: "main",
+            agentId,
             channel: "telegram-selfbot",
             accountId: "default",
         });
-        const humanDelay = runtime.channel.reply.resolveHumanDelayConfig(_cfg, "main");
+        const humanDelay = runtime.channel.reply.resolveHumanDelayConfig(_cfg, agentId);
         const { dispatcher, replyOptions } = runtime.channel.reply.createReplyDispatcherWithTyping({
             ...replyPipeline,
             humanDelay,
