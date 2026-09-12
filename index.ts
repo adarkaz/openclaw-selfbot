@@ -5,6 +5,7 @@ import { registerAllTools } from "./src/tools/index.js";
 import { TelegramSelfBotClient } from "./src/client.js";
 import { createTelegramSelfBotMonitor } from "./src/monitor.js";
 import { createDispatcher } from "./src/dispatch.js";
+import { createSelfLoop } from "./src/loop.js";
 import { createInterface } from "node:readline";
 
 function promptStdin(question: string): Promise<string> {
@@ -36,6 +37,14 @@ function resolveClient(): TelegramSelfBotClient {
 // ---- Bot identity cache ----
 let _botUsername: string | null | undefined = undefined;
 let _dispatcher: ReturnType<typeof createDispatcher> | null = null;
+let _selfLoop: ReturnType<typeof createSelfLoop> | null = null;
+
+function getSelfLoopConfig(): any {
+  return (
+    (_cfg?.channels as Record<string, any> | undefined)?.["telegram-selfbot"]
+      ?.selfLoop ?? null
+  );
+}
 
 async function getBotUsername(): Promise<string | null> {
   if (_botUsername !== undefined) return _botUsername;
@@ -140,6 +149,21 @@ async function startClient(cfg: any): Promise<void> {
       const monitor = createTelegramSelfBotMonitor(client, dispatcher.dispatchInboundMessage);
       monitors.set("default", monitor);
 
+      // Self-chat loop: agent asks itself a question every N minutes
+      if (_selfLoop) {
+        _selfLoop.stop();
+        _selfLoop = null;
+      }
+      _selfLoop = createSelfLoop({
+        dispatchSelf: (payload: any) => dispatcher.dispatchSelfMessage(payload),
+        getConfig: getSelfLoopConfig,
+      });
+      _selfLoop.start();
+
+      // Alive by default: answer DMs without manual resume
+      if (section.autoResume !== false) {
+        dispatcher.resume();
+      }
 
       console.log("[telegram-selfbot] Connected and monitoring inbound messages");
     } catch (err) {
@@ -154,6 +178,8 @@ async function startClient(cfg: any): Promise<void> {
 }
 
 async function stopAll(): Promise<void> {
+  _selfLoop?.stop();
+  _selfLoop = null;
   for (const monitor of monitors.values()) monitor.stop();
   monitors.clear();
   for (const client of clients.values()) await client.disconnect();
@@ -207,7 +233,11 @@ export default defineChannelPluginEntry({
       await stopAll();
     }, { name: "telegram-selfbot-stop" });
 
-    registerAllTools(api, clients);
+    registerAllTools(
+      api,
+      clients,
+      (api.config as any)?.channels?.["telegram-selfbot"],
+    );
 
     api.registerGatewayMethod("telegram-selfbot.getSessionString", () => {
       return { sessionString: resolveClient().getSessionString() };

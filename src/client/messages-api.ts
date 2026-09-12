@@ -1,6 +1,6 @@
 import { Api } from "telegram";
 import type { TelegramClient } from "telegram";
-import type { TelegramMessage, SendResult } from "../types.js";
+import type { SendResult } from "../types.js";
 
 export class MessagesAPI {
   constructor(
@@ -26,39 +26,6 @@ export class MessagesAPI {
       chatId: String(msg.chatId ?? chatId),
       date: msg.date ?? Math.floor(Date.now() / 1000),
     };
-  }
-
-  async getMessages(
-    chatId: string,
-    limit?: number,
-    offsetId?: number,
-  ): Promise<TelegramMessage[]> {
-    this.ensureConnected();
-    const peer = await this.resolvePeer(chatId);
-    const messages = await this.client().getMessages(peer, {
-      limit: limit ?? 50,
-      ...(offsetId ? { offsetId } : {}),
-    });
-    return messages
-      .filter((m: any) => m != null)
-      .map((m: any) => ({
-        id: m.id,
-        chatId,
-        text: m.text || "",
-        senderId: String(m.senderId ?? ""),
-        senderName: (m.sender?.firstName ?? m.sender?.username ?? ""),
-        date: m.date,
-        isOutgoing: m.out ?? false,
-        isReply: Boolean(m.isReply ?? m.replyToMsgId),
-        replyToMsgId: m.replyToMsgId ?? undefined,
-        media: m.media
-          ? {
-              type: m.media.className,
-              fileId: (m.media as any)?.id?.toString(),
-              mimeType: (m.media as any)?.mimeType,
-            }
-          : undefined,
-      }));
   }
 
   async sendTypingIndicator(chatId: string): Promise<void> {

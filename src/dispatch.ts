@@ -1,7 +1,6 @@
 import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";
 import type { TelegramSelfBotClient } from "./client.js";
-import { payloadTextResult } from "node_modules/openclaw/dist/plugin-sdk/src/agents/tools/common.js";
-import { InboundTelegramMessage } from "./types.js";
+import type { InboundTelegramMessage } from "./types.js";
 
 export interface DispatchDeps {
   runtime: any;
@@ -29,6 +28,22 @@ export function createDispatcher(deps: DispatchDeps) {
       channel: "telegram-selfbot",
       accountId: "default",
       peer: { kind: "direct", id: payload.chatId },
+    });
+
+    dispatchToAgent(payload, sessionKey);
+  }
+
+  /**
+   * Self-loop entry: synthetic "self" message, not gated by pause.
+   * Its own session key (peer id = chatId, "self" by default) keeps the
+   * self-chat dialog separate from every real DM.
+   */
+  function dispatchSelfMessage(payload: any) {
+    const sessionKey = runtime.channel.routing.buildAgentSessionKey({
+      agentId: "main",
+      channel: "telegram-selfbot",
+      accountId: "default",
+      peer: { kind: "direct", id: payload.chatId ?? "self" },
     });
 
     dispatchToAgent(payload, sessionKey);
@@ -163,6 +178,7 @@ export function createDispatcher(deps: DispatchDeps) {
 
   return {
     dispatchInboundMessage,
+    dispatchSelfMessage,
     get paused() { return paused; },
     pause() { paused = true; },
     resume() { paused = false; },

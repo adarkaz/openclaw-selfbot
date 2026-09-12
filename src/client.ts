@@ -2,14 +2,8 @@ import { TelegramClient, utils } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { Api } from "telegram";
 import { NewMessage } from "telegram/events";
-import type {
-  InboundTelegramMessage,
-  TelegramDialog,
-  TelegramMe,
-  SendResult,
-} from "./types.js";
+import type { InboundTelegramMessage } from "./types.js";
 import { MessagesAPI } from "./client/messages-api.js";
-import { DialogsAPI } from "./client/dialogs-api.js";
 import { UsersAPI } from "./client/users-api.js";
 import { FilesAPI } from "./client/files-api.js";
 
@@ -20,12 +14,55 @@ type ConnectionState =
   | "reconnecting"
   | "disconnected";
 
+/**
+ * gramjs's generated .d.ts types int128/int256 fields as big-integer's
+ * BigInteger class, but the runtime accepts native bigint (verified).
+ * Wrap native bigints at TL constructor call sites.
+ */
+const tlBigInt = (v: bigint): any => v;
+
+/**
+ * Recursively convert plain JSON params into gramjs TL objects.
+ * Nested objects marked with a snake_case "_" key ("inputPeerSelf",
+ * "inputReplyToMessage", …) become Api.* constructor instances; gramjs does
+ * NOT do this itself (plain objects fail serialization).
+ */
+function hydrateTlParams(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(hydrateTlParams);
+  if (v && typeof v === "object") {
+    if (
+      v instanceof Date ||
+      v instanceof Uint8Array ||
+      typeof (v as any).getBytes === "function"
+    ) {
+      return v; // already a TLObject / Buffer / Date — pass through
+    }
+    if (typeof (v as any)._ === "string" && (v as any)._ !== "") {
+      const cls = (v as any)._
+        .split("_")
+        .map((s: string) => s[0].toUpperCase() + s.slice(1))
+        .join("");
+      const Ctor = (Api as any)[cls];
+      if (typeof Ctor !== "function") {
+        throw new Error(`Unknown TL class: ${(v as any)._}`);
+      }
+      const { _: __, ...rest } = v as any;
+      return new Ctor(hydrateTlParams(rest));
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as any)) {
+      out[k] = hydrateTlParams(val);
+    }
+    return out;
+  }
+  return v;
+}
+
 export type MessageHandler = (msg: InboundTelegramMessage) => void;
 
 export class TelegramSelfBotClient {
   public readonly accountId: string;
   public readonly messages: MessagesAPI;
-  public readonly dialogs: DialogsAPI;
   public readonly users: UsersAPI;
   public readonly files: FilesAPI;
 
@@ -70,7 +107,6 @@ export class TelegramSelfBotClient {
       replyTo?: number,
       isRetry?: boolean,
     ) => this.sendRawMessage(chatId, text, replyTo, isRetry);
-    const formatDlg = (d: any) => this.formatDialog(d);
 
     this.messages = new MessagesAPI(
       rawClient,
@@ -78,8 +114,7 @@ export class TelegramSelfBotClient {
       ensureConnected,
       sendRaw,
     );
-    this.dialogs = new DialogsAPI(rawClient, ensureConnected, formatDlg);
-    this.users = new UsersAPI(rawClient, ensureConnected, resolvePeer);
+    this.users = new UsersAPI(rawClient, ensureConnected);
     this.files = new FilesAPI(rawClient, resolvePeer, ensureConnected);
   }
 
@@ -143,14 +178,56 @@ export class TelegramSelfBotClient {
     if (typeof apiClass !== "function") {
       throw new Error(`Unknown API method: ${method}`);
     }
-    return this._client!.invoke(new apiClass(params));
+    const hydrated: any = hydrateTlParams(params);
+    await this._autofillPeers(hydrated);
+    return this._client!.invoke(new apiClass(hydrated));
   }
 
-  // ---- Peer cache access (for external API use) ----
-
-  /** Expose peer cache so API modules can use the same cache. */
-  getPeerCache(): Map<string, Api.TypeInputPeer> {
-    return this.peerCache;
+  /**
+   * Fill in peers the agent referenced loosely:
+   *  - string on peer/fromPeer/toPeer keys → resolvePeer ("self", id, @username, +phone)
+   *  - inputPeerUser/Chat/Channel objects missing accessHash → peerCache,
+   *    anywhere in the tree (direct values, array elements, `id` arrays)
+   */
+  private async _autofillPeers(value: any): Promise<any> {
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        value[i] = await this._autofillPeers(value[i]);
+      }
+      return value;
+    }
+    if (value && typeof value === "object") {
+      const ownClassName = (value as any).className;
+      if (
+        typeof ownClassName === "string" &&
+        ["InputPeerUser", "InputPeerChat", "InputPeerChannel"].includes(
+          ownClassName,
+        ) &&
+        (value as any).accessHash === undefined
+      ) {
+        const id = String(
+          (value as any).userId ??
+            (value as any).chatId ??
+            (value as any).channelId ??
+            "",
+        );
+        const cached = id ? this.peerCache.get(id) : undefined;
+        if (cached && (cached as any).className === ownClassName) {
+          return cached;
+        }
+      }
+      for (const [k, v] of Object.entries(value)) {
+        if (
+          (k === "peer" || k === "fromPeer" || k === "toPeer") &&
+          typeof v === "string"
+        ) {
+          value[k] = await this.resolvePeer(v);
+          continue;
+        }
+        value[k] = await this._autofillPeers(v);
+      }
+    }
+    return value;
   }
 
   // ---- Public API helpers (used internally and by domain API classes) ----
@@ -165,35 +242,26 @@ export class TelegramSelfBotClient {
 
   /** Resolve a chatId string into an InputPeer for gramjs API calls. */
   async resolvePeer(chatId: string): Promise<Api.TypeInputPeer> {
+    // 0) Self / Saved Messages
+    if (chatId === "self" || chatId === "me") {
+      return new Api.InputPeerSelf();
+    }
+
     // 1) Own cache (populated from inbound events + dialogs preload)
     const cached = this.peerCache.get(chatId);
     if (cached) return cached;
 
-    // 2) gramjs getInputEntity (entity cache → session → network)
-    const numId = Number(chatId);
-    try {
-      const peer = await this._client!.getInputEntity(
-        isNaN(numId) ? chatId : numId,
-      );
-      if (peer) {
-        this.peerCache.set(chatId, peer);
-        return peer;
-      }
-    } catch {
-      // expected for self-bots — fall through
-    }
-
-    // 3) Username resolution
+    // 2) Username resolution
     if (chatId.startsWith("@")) {
       return this._resolveByUsername(chatId);
     }
 
-    // 4) Phone number resolution
+    // 3) Phone number resolution
     if (chatId.startsWith("+")) {
       return this._resolveByPhone(chatId);
     }
 
-    // 5) Network fallback: users.GetUsers / channels.GetChannels
+    // 4) Network fallback: users.GetUsers / channels.GetChannels
     const peer = await this._resolveById(chatId);
     if (peer) {
       this.peerCache.set(chatId, peer);
@@ -220,8 +288,8 @@ export class TelegramSelfBotClient {
         new Api.messages.SendMessage({
           peer,
           message: text,
-          randomId: BigInt(
-            Math.floor(Math.random() * Number.MAX_SAFE_INTEGER),
+          randomId: tlBigInt(
+            BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
           ),
           ...(replyTo
             ? { replyTo: new Api.InputReplyToMessage({ replyToMsgId: replyTo }) }
@@ -248,42 +316,6 @@ export class TelegramSelfBotClient {
       }
       throw err;
     }
-  }
-
-  /** Format a raw gramjs dialog into our typed shape. */
-  formatDialog(d: any): TelegramDialog {
-    const entity = d.entity;
-    let name = "";
-    let type: TelegramDialog["type"] = "direct";
-    if (entity) {
-      if ("title" in entity && entity.title) {
-        name = entity.title;
-        type = entity.megagroup
-          ? "group"
-          : entity.broadcast
-            ? "channel"
-            : "group";
-      } else if ("firstName" in entity) {
-        name =
-          [entity.firstName, entity.lastName].filter(Boolean).join(" ") ||
-          entity.username ||
-          String(entity.id);
-        type = entity.bot ? "bot" : "direct";
-      }
-    }
-    return {
-      id: String(d.id),
-      name,
-      type,
-      unreadCount: d.unreadCount,
-      lastMessage: d.message
-        ? {
-            text: d.message.text || "",
-            date: d.message.date,
-            isOutgoing: d.message.out ?? false,
-          }
-        : undefined,
-    };
   }
 
   // ---- Infrastructure (read receipts, typing) stay on client ----
@@ -339,8 +371,11 @@ export class TelegramSelfBotClient {
           phoneNumber: this.config.phoneNumber,
           phoneCode: interactiveAuth.onCodeRequest,
           password: this.config.password
-            ? () => Promise.resolve(this.config.password)
+            ? () => Promise.resolve(this.config.password!)
             : interactiveAuth.onPasswordRequest,
+          onError: (err: Error) => {
+            throw err;
+          },
         });
 
         const sessionStr = this.session.save() as unknown as string;
@@ -404,30 +439,76 @@ export class TelegramSelfBotClient {
     }
   }
 
-  /** Preload all dialogs to populate peerCache with valid accessHashes. */
+  /**
+   * Preload all dialogs (raw Api.messages.GetDialogs) to populate
+   * peerCache with valid InputPeers + userInfoCache with display names.
+   */
   private async _preloadDialogs(): Promise<void> {
     try {
-      const dialogs = await this._client!.getDialogs({ limit: 200 });
+      const result: any = await this._client!.invoke(
+        new Api.messages.GetDialogs({
+          offsetDate: 0,
+          offsetId: 0,
+          offsetPeer: new Api.InputPeerEmpty(),
+          limit: 200,
+          hash: tlBigInt(0n),
+        }),
+      );
+
+      const usersById = new Map<string, any>();
+      for (const u of result.users ?? []) {
+        usersById.set(String(u.id), u);
+      }
+      const chatsById = new Map<string, any>();
+      for (const c of result.chats ?? []) {
+        chatsById.set(String(c.id), c);
+      }
+
       let cached = 0;
-      for (const d of dialogs) {
+      for (const d of result.dialogs ?? []) {
         try {
-          if (!d.entity) continue;
-          const inputPeer = utils.getInputPeer(d.entity);
-          const peerId = utils.getPeerId(d.entity);
-          if (!this.peerCache.has(peerId)) {
-            this.peerCache.set(peerId, inputPeer);
+          const peer = d.peer;
+          let inputPeer: Api.TypeInputPeer | null = null;
+          let key = "";
+          let entity: any = null;
+
+          if (peer?.className === "PeerUser") {
+            entity = usersById.get(String(peer.userId));
+            if (entity) {
+              key = String(entity.id);
+              inputPeer = new Api.InputPeerUser({
+                userId: entity.id,
+                accessHash: entity.accessHash ?? 0n,
+              });
+            }
+          } else if (peer?.className === "PeerChat") {
+            entity = chatsById.get(String(peer.chatId));
+            if (entity) {
+              key = "-" + entity.id;
+              inputPeer = new Api.InputPeerChat({ chatId: entity.id });
+            }
+          } else if (peer?.className === "PeerChannel") {
+            entity = chatsById.get(String(peer.channelId));
+            if (entity) {
+              key = "-100" + entity.id;
+              inputPeer = new Api.InputPeerChannel({
+                channelId: entity.id,
+                accessHash: entity.accessHash ?? 0n,
+              });
+            }
+          }
+
+          if (inputPeer && key && !this.peerCache.has(key)) {
+            this.peerCache.set(key, inputPeer);
             cached++;
           }
+
           // Cache user info for sender display names
-          if (
-            "firstName" in d.entity &&
-            !this.userInfoCache.has(peerId)
-          ) {
-            const e = d.entity as Record<string, unknown>;
-            this.userInfoCache.set(peerId, {
-              firstName: (e.firstName as string) || undefined,
-              lastName: (e.lastName as string) || undefined,
-              username: (e.username as string) || undefined,
+          if (entity?.firstName && !this.userInfoCache.has(key)) {
+            this.userInfoCache.set(key, {
+              firstName: entity.firstName || undefined,
+              lastName: entity.lastName || undefined,
+              username: entity.username || undefined,
             });
           }
         } catch {
@@ -458,7 +539,12 @@ export class TelegramSelfBotClient {
       client
         .invoke(
           new Api.users.GetUsers({
-            id: [new Api.InputUser({ userId, accessHash: 0n })],
+            id: [
+              new Api.InputUser({
+                userId: tlBigInt(userId),
+                accessHash: tlBigInt(0n),
+              }),
+            ],
           }),
         )
         .then((result: any) => {
@@ -516,7 +602,7 @@ export class TelegramSelfBotClient {
 
   private async _resolveByPhone(phone: string): Promise<Api.TypeInputPeer> {
     const result: any = await this._client!.invoke(
-      new Api.contacts.GetContacts({ hash: 0n }),
+      new Api.contacts.GetContacts({ hash: tlBigInt(0n) }),
     );
     const normalizedPhone = phone.slice(1);
     if (result.users) {
@@ -544,7 +630,12 @@ export class TelegramSelfBotClient {
       try {
         const result: any = await this._client!.invoke(
           new Api.channels.GetChannels({
-            id: [new Api.InputChannel({ channelId, accessHash: 0n })],
+            id: [
+              new Api.InputChannel({
+                channelId: tlBigInt(channelId),
+                accessHash: tlBigInt(0n),
+              }),
+            ],
           }),
         );
         if (result.chats?.length) {
@@ -566,13 +657,18 @@ export class TelegramSelfBotClient {
         // channel not accessible
       }
     } else if (chatId.startsWith("-")) {
-      return new Api.InputPeerChat({ chatId: BigInt(chatId) });
+      return new Api.InputPeerChat({ chatId: tlBigInt(BigInt(chatId)) });
     } else {
       try {
         const userId = BigInt(chatId);
         const result: any = await this._client!.invoke(
           new Api.users.GetUsers({
-            id: [new Api.InputUser({ userId, accessHash: 0n })],
+            id: [
+              new Api.InputUser({
+                userId: tlBigInt(userId),
+                accessHash: tlBigInt(0n),
+              }),
+            ],
           }),
         );
         if (result?.length && result[0].className !== "UserEmpty") {
@@ -603,7 +699,7 @@ export class TelegramSelfBotClient {
           typeof sender.accessHash === "bigint" ? sender.accessHash : 0n;
         this.peerCache.set(
           sid,
-          new Api.InputPeerUser({ userId: BigInt(sid), accessHash: hash }),
+          new Api.InputPeerUser({ userId: tlBigInt(BigInt(sid)), accessHash: hash }),
         );
       }
       const chatEntity = (event as any)._chat;
@@ -617,14 +713,14 @@ export class TelegramSelfBotClient {
           this.peerCache.set(
             "-100" + cid,
             new Api.InputPeerChannel({
-              channelId: BigInt(cid),
+              channelId: tlBigInt(BigInt(cid)),
               accessHash: hash,
             }),
           );
         } else {
           this.peerCache.set(
             "-" + cid,
-            new Api.InputPeerChat({ chatId: BigInt(cid) }),
+            new Api.InputPeerChat({ chatId: tlBigInt(BigInt(cid)) }),
           );
         }
       }

@@ -41,35 +41,6 @@ export interface InboundTelegramMessage {
   };
 }
 
-export interface TelegramDialog {
-  id: string;
-  name: string;
-  type: "direct" | "group" | "channel" | "bot";
-  unreadCount: number;
-  lastMessage?: {
-    text: string;
-    date: number;
-    isOutgoing: boolean;
-  };
-}
-
-export interface TelegramMessage {
-  id: number;
-  chatId: string;
-  text: string;
-  senderId: string;
-  senderName: string;
-  date: number;
-  isOutgoing: boolean;
-  isReply: boolean;
-  replyToMsgId?: number;
-  media?: {
-    type: string;
-    fileId?: string;
-    mimeType?: string;
-  };
-}
-
 export interface SendResult {
   messageId: number;
   chatId: string;
