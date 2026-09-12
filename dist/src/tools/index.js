@@ -1,12 +1,7 @@
 import { createInvokeTool } from "./raw/invoke.js";
-import { createWebSearchTool } from "./web/search.js";
-export function registerAllTools(api, clients, channelCfg) {
-    const tools = [createInvokeTool(clients)];
-    if (channelCfg?.webSearch?.enabled !== false) {
-        tools.push(createWebSearchTool());
-    }
-    for (const tool of tools) {
-        api.registerTool(tool, { name: tool.name });
-    }
+export function registerAllTools(api, clients, _channelCfg) {
+    // Web search is provided by OpenClaw core's built-in web_search tool —
+    // the plugin only registers tg_invoke.
+    api.registerTool(createInvokeTool(clients), { name: "tg_invoke" });
 }
 //# sourceMappingURL=index.js.map

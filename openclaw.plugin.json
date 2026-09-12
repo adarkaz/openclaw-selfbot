@@ -9,7 +9,7 @@
     ]
   },
   "contracts": {
-    "tools": ["tg_invoke", "web_search"]
+    "tools": ["tg_invoke"]
   },
   "configSchema": {
     "type": "object",
